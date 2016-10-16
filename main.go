@@ -14,6 +14,7 @@ import (
 func main() {
 	url := flag.String("url", os.Getenv("GITLAB_URL"), "GitLab URL")
 	token := flag.String("token", os.Getenv("GITLAB_PRIVATE_TOKEN"), "GitLab private token")
+	debug := flag.Bool("debug", false, "Enable debug logging")
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
@@ -31,6 +32,7 @@ func main() {
 	git.SetBaseURL(*url)
 
 	fs := NewGitlabFs(git)
+	fs.SetDebug(*debug)
 
 	server, _, err := nodefs.MountRoot(flag.Arg(0), fs.Root(), nil)
 	if err != nil {
