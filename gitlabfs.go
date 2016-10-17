@@ -233,22 +233,42 @@ func (n *projectBuildsNode) fetch() bool {
 		bldName := strconv.Itoa(bld.ID)
 
 		_, exists := existing[bldName]
-		if exists {
+		if !exists {
+			n.addNewBuildDirNode(&bld)
 			continue
 		}
-
-		// Add a new node
-		if n.fs.debug {
-			log.Printf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
-		}
-
-		node := nodefs.NewDefaultNode()
-		n.Inode().NewChild(bldName, true, node)
 	}
 
 	// TODO: Remove ones that no longer exist -- Can this even happen with GitLab?
 
 	return true
+}
+
+func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
+	if n.fs.debug {
+		log.Printf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
+	}
+
+	fs := n.fs
+	prjID := n.prjID
+	bldID := bld.ID
+	bldName := strconv.Itoa(bld.ID)
+
+	// Add the builds/1234 directory
+	bldDirInode := n.Inode().NewChild(bldName, true, &buildDirNode{
+		Node:  nodefs.NewDefaultNode(),
+		fs:    fs,
+		prjID: prjID,
+		bldID: bldID,
+	})
+
+	// Add the builds/1234/xxx files
+	bldDirInode.NewChild("status", false, &buildStatusNode{
+		Node:  nodefs.NewDefaultNode(),
+		fs:    fs,
+		prjID: prjID,
+		bldID: bldID,
+	})
 }
 
 func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -291,3 +311,46 @@ func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Co
 	return newInode, fuse.OK
 }
 */
+
+/******************************************************************************/
+/* <build_id> directory */
+
+type buildDirNode struct {
+	nodefs.Node
+	fs    *GitlabFs
+	prjID int
+	bldID int
+}
+
+/******************************************************************************/
+/* builds/<id>/status */
+
+type buildStatusNode struct {
+	nodefs.Node
+	fs    *GitlabFs
+	prjID int
+	bldID int
+}
+
+func (n *buildStatusNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetSingleBuild(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		return fuse.EIO
+	}
+	out.Mode = fuse.S_IFREG | 0444
+	out.Size = uint64(len(bld.Status) + 1)
+	return fuse.OK
+}
+
+func (n *buildStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+	if flags&fuse.O_ANYWRITE != 0 {
+		return nil, fuse.EPERM
+	}
+	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetSingleBuild(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		return nil, fuse.EIO
+	}
+	return nodefs.NewDataFile([]byte(bld.Status + "\n")), fuse.OK
+}
