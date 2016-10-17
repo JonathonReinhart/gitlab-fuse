@@ -297,34 +297,21 @@ func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fus
 	return n.Node.OpenDir(context)
 }
 
-/*
 func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
 	if n.fs.debug {
 		log.Printf("projectBuildsNode.Lookup(%q)\n", name)
 	}
 
-	bldID, err := strconv.Atoi(name)
-	if err != nil {
+	if !n.fetch() {
+		return nil, fuse.EIO
+	}
+	ch := n.Inode().GetChild(name)
+	if ch == nil {
 		return nil, fuse.ENOENT
 	}
 
-	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, bldID)
-	if err != nil {
-		log.Printf("GetSingleBuild(%d, %d) error: %v\n", n.prjID, bldID, err)
-		return nil, fuse.EIO
-	}
-	_ = bld
-
-	// TODO: Are we supposed to lazily create the inode now?
-	newInode := n.Node.Inode().NewChild(strconv.Itoa(bldID), true, nodefs.NewDefaultNode())
-
-	if n.fs.debug {
-		log.Printf("projectBuildsNode.Lookup(%q) => Created new Inode\n", name)
-	}
-
-	return newInode, fuse.OK
+	return ch, ch.Node().GetAttr(out, nil, context)
 }
-*/
 
 /******************************************************************************/
 /* <build_id> directory */
