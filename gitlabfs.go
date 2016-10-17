@@ -2,6 +2,7 @@ package main
 
 import (
 	//"io/ioutil"
+	"fmt"
 	"log"
 
 	"github.com/hanwen/go-fuse/fuse"
@@ -90,6 +91,13 @@ func (fs *GitlabFs) onMount() {
 			// Add project contents to project
 			prjInode.NewChild("description", false,
 				&projectDescNode{
+					Node:  nodefs.NewDefaultNode(),
+					fs:    fs,
+					prjID: prj.ID,
+				})
+
+			prjInode.NewChild("builds", true,
+				&projectBuildsNode{
 					Node:  nodefs.NewDefaultNode(),
 					fs:    fs,
 					prjID: prj.ID,
@@ -184,4 +192,46 @@ func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fus
 	out.Mode = fuse.S_IFREG | 0444
 	out.Size = uint64(len(prj.Description) + 1)
 	return fuse.OK
+}
+
+/******************************************************************************/
+/* Project builds */
+
+type projectBuildsNode struct {
+	nodefs.Node
+	fs    *GitlabFs
+	prjID int
+}
+
+func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+	if n.fs.debug {
+		log.Printf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
+	}
+
+	// Look up this project's info
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
+	if err != nil {
+		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
+		return nil, fuse.EIO
+	}
+
+	if !prj.BuildsEnabled {
+		return nil, fuse.ENOENT
+	}
+
+	blds, _, err := n.fs.client.Builds.ListProjectBuilds(prj.ID, nil)
+	if err != nil {
+		log.Printf("ListProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
+		return nil, fuse.EIO
+	}
+
+	// List the <namespace>/<project>/builds directory
+	result := make([]fuse.DirEntry, 0, len(blds))
+	for _, bld := range blds {
+		result = append(result, fuse.DirEntry{Name: fmt.Sprintf("%d", bld.ID), Mode: fuse.S_IFDIR})
+	}
+
+	return result, fuse.OK
+
+	//return n.Node.OpenDir(context)
 }
