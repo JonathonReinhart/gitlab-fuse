@@ -4,12 +4,40 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
 
+	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/xanzy/go-gitlab"
 )
 
 /******************************************************************************/
+
+// Wait for SIGINT in the background and unmount ourselves if we get it.
+// This prevents a dangling "Transport endpoint is not connected"
+// mountpoint if the user hits CTRL-C.
+// https://github.com/rfjakob/gocryptfs/blob/master/mount.go
+func handleSigint(srv *fuse.Server, mountpoint string) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt)
+	signal.Notify(ch, syscall.SIGTERM)
+	go func() {
+		<-ch
+		log.Print("Unmounting...")
+		err := srv.Unmount()
+		if err != nil {
+			log.Print(err)
+			log.Print("Trying lazy unmount")
+			cmd := exec.Command("fusermount", "-u", "-z", mountpoint)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
+		}
+		os.Exit(1)
+	}()
+}
 
 func main() {
 	url := flag.String("url", os.Getenv("GITLAB_URL"), "GitLab URL")
@@ -34,9 +62,16 @@ func main() {
 	fs := NewGitlabFs(git)
 	fs.SetDebug(*debug)
 
-	server, _, err := nodefs.MountRoot(flag.Arg(0), fs.Root(), nil)
+	opts := &nodefs.Options{
+	//Debug: *debug,
+	}
+
+	mountpoint := flag.Arg(0)
+
+	server, _, err := nodefs.MountRoot(mountpoint, fs.Root(), opts)
 	if err != nil {
 		log.Fatalf("Mount fail: %v\n", err)
 	}
+	handleSigint(server, mountpoint)
 	server.Serve()
 }
