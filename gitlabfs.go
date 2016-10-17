@@ -275,6 +275,14 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 		prjID: prjID,
 		bldID: bldID,
 	})
+	bldDirInode.NewChild(bld.ArtifactsFile.Filename, false, &buildArtifactsArchiveNode{
+		Node:  nodefs.NewDefaultNode(),
+		fs:    fs,
+		prjID: prjID,
+		bldID: bldID,
+		size:  bld.ArtifactsFile.Size,
+	})
+
 }
 
 func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -407,4 +415,41 @@ func (n *buildTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File,
 	}
 
 	return nodefs.NewDataFile(traceBuf), fuse.OK
+}
+
+/******************************************************************************/
+/* builds/<id>/<artifacts_archive_name> */
+
+type buildArtifactsArchiveNode struct {
+	nodefs.Node
+	fs    *GitlabFs
+	prjID int
+	bldID int
+	size  int
+}
+
+func (n *buildArtifactsArchiveNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	out.Mode = fuse.S_IFREG | 0444
+	out.Size = uint64(n.size)
+	return fuse.OK
+}
+
+func (n *buildArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+	if flags&fuse.O_ANYWRITE != 0 {
+		return nil, fuse.EPERM
+	}
+
+	artReader, _, err := n.fs.client.Builds.GetBuildArtifacts(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetBuildArtifacts(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		return nil, fuse.EIO
+	}
+
+	artBuf, err := ioutil.ReadAll(artReader)
+	if err != nil {
+		log.Printf("ReadAll error: %v\n", err)
+		return nil, fuse.EIO
+	}
+
+	return nodefs.NewDataFile(artBuf), fuse.OK
 }
