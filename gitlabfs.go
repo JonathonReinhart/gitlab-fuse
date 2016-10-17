@@ -74,16 +74,26 @@ func (fs *GitlabFs) onMount() {
 		nsNode := &namespaceNode{
 			Node: nodefs.NewDefaultNode(),
 			fs:   fs,
+			path: ns,
 		}
-		inode := fs.root.Inode().NewChild(ns, true, nsNode)
+		nsInode := fs.root.Inode().NewChild(ns, true, nsNode)
 
 		// Add projects to namespace
 		for _, prj := range projects {
 			prjNode := &projectNode{
 				Node: nodefs.NewDefaultNode(),
 				fs:   fs,
+				path: prj.Path,
 			}
-			inode.NewChild(prj.Name, true, prjNode)
+			prjInode := nsInode.NewChild(prj.Path, true, prjNode)
+
+			// Add project contents to project
+			prjInode.NewChild("description", false,
+				&projectDescNode{
+					Node:  nodefs.NewDefaultNode(),
+					fs:    fs,
+					prjID: prj.ID,
+				})
 		}
 	}
 
@@ -114,9 +124,9 @@ func (r *rootNode) OnMount(c *nodefs.FileSystemConnector) {
 
 func (r *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
 	if r.fs.debug {
-		log.Printf("Lookup(%q)\n", name)
+		log.Printf("rootNode.Lookup(%q)\n", name)
 	}
-	return nil, fuse.ENOSYS
+	return nil, fuse.ENOENT
 }
 
 /******************************************************************************/
@@ -124,7 +134,8 @@ func (r *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*
 
 type namespaceNode struct {
 	nodefs.Node
-	fs *GitlabFs
+	fs   *GitlabFs
+	path string
 }
 
 /******************************************************************************/
@@ -132,5 +143,45 @@ type namespaceNode struct {
 
 type projectNode struct {
 	nodefs.Node
-	fs *GitlabFs
+	fs   *GitlabFs
+	path string
+}
+
+func (n *projectNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
+	if n.fs.debug {
+		log.Printf("projectNode.Lookup(%q)\n", name)
+	}
+	return nil, fuse.ENOENT
+}
+
+/******************************************************************************/
+/* Project description */
+
+type projectDescNode struct {
+	nodefs.Node
+	fs    *GitlabFs
+	prjID int
+}
+
+func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+	if flags&fuse.O_ANYWRITE != 0 {
+		return nil, fuse.EPERM
+	}
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
+	if err != nil {
+		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
+		return nil, fuse.EIO
+	}
+	return nodefs.NewDataFile([]byte(prj.Description + "\n")), fuse.OK
+}
+
+func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
+	if err != nil {
+		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
+		return fuse.EIO
+	}
+	out.Mode = fuse.S_IFREG | 0444
+	out.Size = uint64(len(prj.Description) + 1)
+	return fuse.OK
 }
