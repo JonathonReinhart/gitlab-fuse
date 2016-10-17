@@ -2,8 +2,8 @@ package main
 
 import (
 	//"io/ioutil"
-	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
@@ -205,35 +205,89 @@ type projectBuildsNode struct {
 	prjID int
 }
 
+func (n *projectBuildsNode) fetch() bool {
+	// Look up this project's info
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
+	if err != nil {
+		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
+		return false
+	}
+
+	if !prj.BuildsEnabled {
+		// TODO: ENOENT?
+		return true
+	}
+
+	// Get all of the builds from the API
+	blds, _, err := n.fs.client.Builds.ListProjectBuilds(prj.ID, nil)
+	if err != nil {
+		log.Printf("ListProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
+		return false
+	}
+
+	// Get a map of all existing build inodes
+	existing := n.Inode().Children()
+
+	// Add new ones
+	for _, bld := range blds {
+		bldName := strconv.Itoa(bld.ID)
+
+		_, exists := existing[bldName]
+		if exists {
+			continue
+		}
+
+		// Add a new node
+		if n.fs.debug {
+			log.Printf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
+		}
+
+		node := nodefs.NewDefaultNode()
+		n.Inode().NewChild(bldName, true, node)
+	}
+
+	// TODO: Remove ones that no longer exist -- Can this even happen with GitLab?
+
+	return true
+}
+
 func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
 	if n.fs.debug {
 		log.Printf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
 	}
 
-	// Look up this project's info
-	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
-	if err != nil {
-		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
+	if !n.fetch() {
 		return nil, fuse.EIO
 	}
 
-	if !prj.BuildsEnabled {
+	return n.Node.OpenDir(context)
+}
+
+/*
+func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
+	if n.fs.debug {
+		log.Printf("projectBuildsNode.Lookup(%q)\n", name)
+	}
+
+	bldID, err := strconv.Atoi(name)
+	if err != nil {
 		return nil, fuse.ENOENT
 	}
 
-	blds, _, err := n.fs.client.Builds.ListProjectBuilds(prj.ID, nil)
+	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, bldID)
 	if err != nil {
-		log.Printf("ListProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
+		log.Printf("GetSingleBuild(%d, %d) error: %v\n", n.prjID, bldID, err)
 		return nil, fuse.EIO
 	}
+	_ = bld
 
-	// List the <namespace>/<project>/builds directory
-	result := make([]fuse.DirEntry, 0, len(blds))
-	for _, bld := range blds {
-		result = append(result, fuse.DirEntry{Name: fmt.Sprintf("%d", bld.ID), Mode: fuse.S_IFDIR})
+	// TODO: Are we supposed to lazily create the inode now?
+	newInode := n.Node.Inode().NewChild(strconv.Itoa(bldID), true, nodefs.NewDefaultNode())
+
+	if n.fs.debug {
+		log.Printf("projectBuildsNode.Lookup(%q) => Created new Inode\n", name)
 	}
 
-	return result, fuse.OK
-
-	//return n.Node.OpenDir(context)
+	return newInode, fuse.OK
 }
+*/
