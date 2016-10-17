@@ -1,7 +1,7 @@
 package main
 
 import (
-	//"io/ioutil"
+	"io/ioutil"
 	"log"
 	"strconv"
 
@@ -269,6 +269,12 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 		prjID: prjID,
 		bldID: bldID,
 	})
+	bldDirInode.NewChild("trace", false, &buildTraceNode{
+		Node:  nodefs.NewDefaultNode(),
+		fs:    fs,
+		prjID: prjID,
+		bldID: bldID,
+	})
 }
 
 func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -353,4 +359,52 @@ func (n *buildStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File
 		return nil, fuse.EIO
 	}
 	return nodefs.NewDataFile([]byte(bld.Status + "\n")), fuse.OK
+}
+
+/******************************************************************************/
+/* builds/<id>/trace */
+
+type buildTraceNode struct {
+	nodefs.Node
+	fs    *GitlabFs
+	prjID int
+	bldID int
+}
+
+func (n *buildTraceNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	traceReader, _, err := n.fs.client.Builds.GetTraceFile(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetTraceFile(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		return fuse.EIO
+	}
+
+	traceBuf, err := ioutil.ReadAll(traceReader)
+	if err != nil {
+		log.Printf("ReadAll error: %v\n", err)
+		return fuse.EIO
+	}
+
+	out.Mode = fuse.S_IFREG | 0444
+	out.Size = uint64(len(traceBuf))
+	return fuse.OK
+}
+
+func (n *buildTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+	if flags&fuse.O_ANYWRITE != 0 {
+		return nil, fuse.EPERM
+	}
+
+	traceReader, _, err := n.fs.client.Builds.GetTraceFile(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetTraceFile(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		return nil, fuse.EIO
+	}
+
+	traceBuf, err := ioutil.ReadAll(traceReader)
+	if err != nil {
+		log.Printf("ReadAll error: %v\n", err)
+		return nil, fuse.EIO
+	}
+
+	return nodefs.NewDataFile(traceBuf), fuse.OK
 }
