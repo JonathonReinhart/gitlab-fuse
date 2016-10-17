@@ -96,12 +96,14 @@ func (fs *GitlabFs) onMount() {
 					prjID: prj.ID,
 				})
 
-			prjInode.NewChild("builds", true,
-				&projectBuildsNode{
-					Node:  nodefs.NewDefaultNode(),
-					fs:    fs,
-					prjID: prj.ID,
-				})
+			if prj.BuildsEnabled {
+				prjInode.NewChild("builds", true,
+					&projectBuildsNode{
+						Node:  nodefs.NewDefaultNode(),
+						fs:    fs,
+						prjID: prj.ID,
+					})
+			}
 		}
 	}
 
