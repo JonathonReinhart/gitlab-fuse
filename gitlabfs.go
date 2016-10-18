@@ -171,9 +171,13 @@ type projectDescNode struct {
 	nodefs.Node
 	fs    *GitlabFs
 	prjID int
+	size  uint64
 }
 
 func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+	if n.fs.debug {
+		log.Printf("projectDescNode.Open(%d)\n", n.prjID)
+	}
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
@@ -182,17 +186,21 @@ func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File
 		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
 		return nil, fuse.EIO
 	}
+
+	// We lazily set this node's size upon file open to avoid excessive API
+	// calls. Even though an initial stat() will show a size of 0, the kernel
+	// may request GetAttr during a read() call, and if we don't supply the
+	// correct size, the read will return no/short data.
+	n.size = uint64(len(prj.Description) + 1)
 	return nodefs.NewDataFile([]byte(prj.Description + "\n")), fuse.OK
 }
 
 func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
-	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
-	if err != nil {
-		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
-		return fuse.EIO
+	if n.fs.debug {
+		log.Printf("projectDescNode.GetAttr(%d)\n", n.prjID)
 	}
 	out.Mode = fuse.S_IFREG | 0444
-	out.Size = uint64(len(prj.Description) + 1)
+	out.Size = n.size
 	return fuse.OK
 }
 
