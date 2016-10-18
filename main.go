@@ -43,6 +43,7 @@ func main() {
 	url := flag.String("url", os.Getenv("GITLAB_URL"), "GitLab URL")
 	token := flag.String("token", os.Getenv("GITLAB_PRIVATE_TOKEN"), "GitLab private token")
 	debug := flag.Bool("debug", false, "Enable debug logging")
+	fusedebug := flag.Bool("fusedebug", false, "Enable FUSE debug logging")
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
@@ -63,7 +64,7 @@ func main() {
 	fs.SetDebug(*debug)
 
 	opts := &nodefs.Options{
-	//Debug: *debug,
+		Debug: *fusedebug,
 	}
 
 	mountpoint := flag.Arg(0)
