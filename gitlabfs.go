@@ -256,32 +256,18 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 	bldName := strconv.Itoa(bld.ID)
 
 	// Add the builds/1234 directory
-	bldDirInode := n.Inode().NewChild(bldName, true, &buildDirNode{
-		Node:  nodefs.NewDefaultNode(),
-		fs:    fs,
-		prjID: prjID,
-		bldID: bldID,
-	})
+	bldDirInode := n.Inode().NewChild(bldName, true, nodefs.NewDefaultNode())
 
 	// Add the builds/1234/xxx files
 	bldDirInode.NewChild("status", false, &buildStatusNode{
-		Node:  nodefs.NewDefaultNode(),
-		fs:    fs,
-		prjID: prjID,
-		bldID: bldID,
+		buildNode: NewBuildNode(fs, prjID, bldID),
 	})
 	bldDirInode.NewChild("trace", false, &buildTraceNode{
-		Node:  nodefs.NewDefaultNode(),
-		fs:    fs,
-		prjID: prjID,
-		bldID: bldID,
+		buildNode: NewBuildNode(fs, prjID, bldID),
 	})
 	bldDirInode.NewChild(bld.ArtifactsFile.Filename, false, &buildArtifactsArchiveNode{
-		Node:  nodefs.NewDefaultNode(),
-		fs:    fs,
-		prjID: prjID,
-		bldID: bldID,
-		size:  uint64(bld.ArtifactsFile.Size),
+		buildNode: NewBuildNode(fs, prjID, bldID),
+		size:      uint64(bld.ArtifactsFile.Size),
 	})
 
 }
@@ -315,31 +301,36 @@ func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Co
 }
 
 /******************************************************************************/
-/* <build_id> directory */
 
-type buildDirNode struct {
+type buildNode struct {
 	nodefs.Node
 	fs    *GitlabFs
 	prjID int
 	bldID int
+}
+
+func NewBuildNode(fs *GitlabFs, prjID, bldID int) buildNode {
+	return buildNode{
+		Node:  nodefs.NewDefaultNode(),
+		fs:    fs,
+		prjID: prjID,
+		bldID: bldID,
+	}
+}
+
+func (n *buildNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	if file != nil {
+		return file.GetAttr(out)
+	}
+	out.Mode = fuse.S_IFREG | 0444
+	return fuse.OK
 }
 
 /******************************************************************************/
 /* builds/<id>/status */
 
 type buildStatusNode struct {
-	nodefs.Node
-	fs    *GitlabFs
-	prjID int
-	bldID int
-}
-
-func (n *buildStatusNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
-	if file != nil {
-		return file.GetAttr(out)
-	}
-	out.Mode = fuse.S_IFREG | 0444
-	return fuse.OK
+	buildNode
 }
 
 func (n *buildStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
@@ -358,18 +349,7 @@ func (n *buildStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File
 /* builds/<id>/trace */
 
 type buildTraceNode struct {
-	nodefs.Node
-	fs    *GitlabFs
-	prjID int
-	bldID int
-}
-
-func (n *buildTraceNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
-	if file != nil {
-		return file.GetAttr(out)
-	}
-	out.Mode = fuse.S_IFREG | 0444
-	return fuse.OK
+	buildNode
 }
 
 func (n *buildTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
@@ -396,11 +376,8 @@ func (n *buildTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File,
 /* builds/<id>/<artifacts_archive_name> */
 
 type buildArtifactsArchiveNode struct {
-	nodefs.Node
-	fs    *GitlabFs
-	prjID int
-	bldID int
-	size  uint64
+	buildNode
+	size uint64
 }
 
 func (n *buildArtifactsArchiveNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
