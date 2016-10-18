@@ -1,4 +1,4 @@
-package main
+package gitlabfs
 
 import (
 	"github.com/xanzy/go-gitlab"

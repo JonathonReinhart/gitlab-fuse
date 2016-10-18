@@ -1,4 +1,4 @@
-package main
+package gitlabfs
 
 import (
 	"io/ioutil"

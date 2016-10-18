@@ -7,4 +7,4 @@ echo "testpath: $testpath"
 
 fusermount -u $testpath >/dev/null 2>&1
 go build || exit $?
-./gitlab-artifacts-fuse -debug $testpath
+./gitlab-fuse -debug $testpath

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/JonathonReinhart/gitlab-fuse/gitlabfs"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/xanzy/go-gitlab"
@@ -47,7 +48,7 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
-		log.Fatal("Usage: gitlab-artifacts-fuse mountpoint")
+		log.Fatal("Usage: gitlab-fuse mountpoint")
 	}
 	if *url == "" {
 		log.Fatal("GitLab URL not set (via GITLAB_URL or -url)")
@@ -60,7 +61,7 @@ func main() {
 	git := gitlab.NewClient(nil, *token)
 	git.SetBaseURL(*url)
 
-	fs := NewGitlabFs(git)
+	fs := gitlabfs.NewGitlabFs(git)
 	fs.SetDebug(*debug)
 
 	opts := &nodefs.Options{
