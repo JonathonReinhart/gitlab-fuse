@@ -171,7 +171,6 @@ type projectDescNode struct {
 	nodefs.Node
 	fs    *GitlabFs
 	prjID int
-	size  uint64
 }
 
 func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
@@ -187,20 +186,14 @@ func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File
 		return nil, fuse.EIO
 	}
 
-	// We lazily set this node's size upon file open to avoid excessive API
-	// calls. Even though an initial stat() will show a size of 0, the kernel
-	// may request GetAttr during a read() call, and if we don't supply the
-	// correct size, the read will return no/short data.
-	n.size = uint64(len(prj.Description) + 1)
 	return nodefs.NewDataFile([]byte(prj.Description + "\n")), fuse.OK
 }
 
 func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
-	if n.fs.debug {
-		log.Printf("projectDescNode.GetAttr(%d)\n", n.prjID)
+	if file != nil {
+		return file.GetAttr(out)
 	}
 	out.Mode = fuse.S_IFREG | 0444
-	out.Size = n.size
 	return fuse.OK
 }
 
@@ -288,7 +281,7 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 		fs:    fs,
 		prjID: prjID,
 		bldID: bldID,
-		size:  bld.ArtifactsFile.Size,
+		size:  uint64(bld.ArtifactsFile.Size),
 	})
 
 }
@@ -342,13 +335,10 @@ type buildStatusNode struct {
 }
 
 func (n *buildStatusNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
-	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
-	if err != nil {
-		log.Printf("GetSingleBuild(%d, %d) error: %v\n", n.prjID, n.bldID, err)
-		return fuse.EIO
+	if file != nil {
+		return file.GetAttr(out)
 	}
 	out.Mode = fuse.S_IFREG | 0444
-	out.Size = uint64(len(bld.Status) + 1)
 	return fuse.OK
 }
 
@@ -375,20 +365,10 @@ type buildTraceNode struct {
 }
 
 func (n *buildTraceNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
-	traceReader, _, err := n.fs.client.Builds.GetTraceFile(n.prjID, n.bldID)
-	if err != nil {
-		log.Printf("GetTraceFile(%d, %d) error: %v\n", n.prjID, n.bldID, err)
-		return fuse.EIO
+	if file != nil {
+		return file.GetAttr(out)
 	}
-
-	traceBuf, err := ioutil.ReadAll(traceReader)
-	if err != nil {
-		log.Printf("ReadAll error: %v\n", err)
-		return fuse.EIO
-	}
-
 	out.Mode = fuse.S_IFREG | 0444
-	out.Size = uint64(len(traceBuf))
 	return fuse.OK
 }
 
@@ -420,12 +400,15 @@ type buildArtifactsArchiveNode struct {
 	fs    *GitlabFs
 	prjID int
 	bldID int
-	size  int
+	size  uint64
 }
 
 func (n *buildArtifactsArchiveNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	if file != nil {
+		return file.GetAttr(out)
+	}
 	out.Mode = fuse.S_IFREG | 0444
-	out.Size = uint64(n.size)
+	out.Size = n.size
 	return fuse.OK
 }
 
@@ -446,5 +429,6 @@ func (n *buildArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (n
 		return nil, fuse.EIO
 	}
 
+	n.size = uint64(len(artBuf))
 	return nodefs.NewDataFile(artBuf), fuse.OK
 }
