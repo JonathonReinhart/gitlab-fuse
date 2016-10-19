@@ -220,9 +220,9 @@ func (n *projectBuildsNode) fetch() bool {
 	}
 
 	// Get all of the builds from the API
-	blds, _, err := n.fs.client.Builds.ListProjectBuilds(prj.ID, nil)
+	blds, err := GetAllProjectBuilds(n.fs.client, prj.ID)
 	if err != nil {
-		log.Printf("ListProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
+		log.Printf("GetAllProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
 		return false
 	}
 

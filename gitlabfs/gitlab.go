@@ -36,3 +36,31 @@ func GetAllVisibleProjects(git *gitlab.Client) (map[string][]*gitlab.Project, er
 
 	return result, nil
 }
+
+func GetAllProjectBuilds(git *gitlab.Client, pid interface{}) ([]gitlab.Build, error) {
+	result := make([]gitlab.Build, 0)
+
+	opt := gitlab.ListBuildsOptions{
+		ListOptions: gitlab.ListOptions{
+			Page:    1,
+			PerPage: 100,
+		},
+	}
+
+	for {
+		builds, resp, err := git.Builds.ListProjectBuilds(pid, &opt)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, builds...)
+
+		// Go to the next page
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.ListOptions.Page = resp.NextPage
+	}
+
+	return result, nil
+}
