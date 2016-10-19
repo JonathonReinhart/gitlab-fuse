@@ -1,4 +1,4 @@
-gitlab-fuse
+gitlab-fuse [![Build Status](https://travis-ci.org/JonathonReinhart/gitlab-fuse.svg?branch=master)](https://travis-ci.org/JonathonReinhart/gitlab-fuse)
 ===========
 
 A [FUSE] filesystem for interacting with [GitLab], written in Go
