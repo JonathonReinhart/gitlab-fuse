@@ -41,7 +41,6 @@ func handleSigint(srv *fuse.Server, mountpoint string) {
 }
 
 func main() {
-	// Parse arguments
 	url := flag.String("url", os.Getenv("GITLAB_URL"), "GitLab URL")
 	token := flag.String("token", os.Getenv("GITLAB_PRIVATE_TOKEN"), "GitLab private token")
 	debug := flag.Bool("debug", false, "Enable debug logging")
@@ -57,33 +56,24 @@ func main() {
 	if *token == "" {
 		log.Fatal("GitLab token not set (via GITLAB_PRIVATE_TOKEN or -token)")
 	}
-	mountpoint := flag.Arg(0)
 
 	// Create GitLab client
 	git := gitlab.NewClient(nil, *token)
 	git.SetBaseURL(*url)
 
-	// Create GitlabFs
 	fs := gitlabfs.NewGitlabFs(git)
 	fs.SetDebug(*debug)
 
-	// Create FS connector
-	opts := nodefs.NewOptions()
-	opts.Debug = *fusedebug
-	conn := nodefs.NewFileSystemConnector(fs.Root(), opts)
-
-	// Create the FUSE server
-	mntOpts := &fuse.MountOptions{
-		Debug:  *fusedebug,
-		FsName: *url,
-		Name:   "gitlab",
+	opts := &nodefs.Options{
+		Debug: *fusedebug,
 	}
-	server, err := fuse.NewServer(conn.RawFS(), mountpoint, mntOpts)
+
+	mountpoint := flag.Arg(0)
+
+	server, _, err := nodefs.MountRoot(mountpoint, fs.Root(), opts)
 	if err != nil {
 		log.Fatalf("Mount fail: %v\n", err)
 	}
-
-	// Run!
 	handleSigint(server, mountpoint)
 	server.Serve()
 }
