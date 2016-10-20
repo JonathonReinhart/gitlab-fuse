@@ -68,8 +68,10 @@ func main() {
 	fs.SetDebug(*debug)
 
 	// Create FS connector
-	opts := nodefs.NewOptions()
-	opts.Debug = *fusedebug
+	opts := &nodefs.Options{
+		Owner: fuse.CurrentOwner(),
+		Debug: *fusedebug,
+	}
 	conn := nodefs.NewFileSystemConnector(fs.Root(), opts)
 
 	// Create the FUSE server
