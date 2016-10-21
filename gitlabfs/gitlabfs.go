@@ -265,6 +265,9 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 		buildNode: NewBuildNode(fs, prjID, bldID),
 		size:      uint64(bld.ArtifactsFile.Size),
 	})
+	if bld.ArtifactsFile.Size > 0 {
+		bldDirInode.NewChild("artifacts", true, NewBuildArtifactsDirNode(fs, prjID, bldID))
+	}
 
 }
 
@@ -400,4 +403,55 @@ func (n *buildArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (n
 
 	n.size = uint64(len(artBuf))
 	return nodefs.NewDataFile(artBuf), fuse.OK
+}
+
+/******************************************************************************/
+/* builds/<id>/artifacts/ */
+
+type buildArtifactsDirNode struct {
+	nodefs.Node
+	fs      *GitlabFs
+	prjID   int
+	bldID   int
+	fetched bool
+}
+
+func NewBuildArtifactsDirNode(fs *GitlabFs, prjID, bldID int) *buildArtifactsDirNode {
+	return &buildArtifactsDirNode{
+		Node:  nodefs.NewDefaultNode(),
+		prjID: prjID,
+		bldID: bldID,
+		fs:    fs,
+	}
+}
+
+func (n *buildArtifactsDirNode) fetch() bool {
+	if n.fetched {
+		return true
+	}
+	return false
+}
+
+func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+	n.fs.DbgPrintf("buildArtifactsDirNode.OpenDir() (prjID=%d bldID=%d)\n", n.prjID, n.bldID)
+
+	if !n.fetch() {
+		return nil, fuse.EIO
+	}
+
+	return n.Node.OpenDir(context)
+}
+
+func (n *buildArtifactsDirNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
+	n.fs.DbgPrintf("buildArtifactsDirNode.Lookup(%q) (prjID=%d bldID=%d)\n", name, n.prjID, n.bldID)
+
+	if !n.fetch() {
+		return nil, fuse.EIO
+	}
+	ch := n.Inode().GetChild(name)
+	if ch == nil {
+		return nil, fuse.ENOENT
+	}
+
+	return ch, ch.Node().GetAttr(out, nil, context)
 }
