@@ -1,9 +1,14 @@
 package gitlabfs
 
 import (
+	"archive/zip"
+	"errors"
+	"io"
 	"io/ioutil"
 	"log"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
@@ -410,10 +415,11 @@ func (n *buildArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (n
 
 type buildArtifactsDirNode struct {
 	nodefs.Node
-	fs      *GitlabFs
-	prjID   int
-	bldID   int
-	fetched bool
+	fs    *GitlabFs
+	prjID int
+	bldID int
+
+	zipr *ZipFileReader
 }
 
 func NewBuildArtifactsDirNode(fs *GitlabFs, prjID, bldID int) *buildArtifactsDirNode {
@@ -425,11 +431,73 @@ func NewBuildArtifactsDirNode(fs *GitlabFs, prjID, bldID int) *buildArtifactsDir
 	}
 }
 
+func (n *buildArtifactsDirNode) getArchive() (*os.File, error) {
+	n.fs.DbgPrintf("Getting artifact archive for prjID=%d, bldID=%d\n", n.prjID, n.bldID)
+
+	// Get its name
+	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetSingleBuild(prjID=%d bldID=%d) failed: %v\n", n.prjID, n.bldID, err)
+		return nil, err
+	}
+	filename := bld.ArtifactsFile.Filename
+
+	if !strings.HasSuffix(filename, ".zip") {
+		return nil, errors.New("Only zip files are supported")
+	}
+
+	// Download the artifact
+	artReader, _, err := n.fs.client.Builds.GetBuildArtifacts(n.prjID, n.bldID)
+	if err != nil {
+		log.Printf("GetBuildArtifacts(prjID=%d bldID=%d) failed: %v\n", n.prjID, n.bldID, err)
+		return nil, err
+	}
+
+	f, err := UnlinkedTempFile("", "gitlab-fuse-artifact")
+	if err != nil {
+		log.Printf("UnlinkedTempFile() failed: %v\n", err)
+		return nil, err
+	}
+
+	_, err = io.Copy(f, artReader)
+	if err != nil {
+		log.Printf("Copying artifact archive failed: %v\n", err)
+		return nil, err
+	}
+
+	f.Seek(0, os.SEEK_SET)
+	return f, nil
+}
+
 func (n *buildArtifactsDirNode) fetch() bool {
-	if n.fetched {
+	if n.zipr != nil {
 		return true
 	}
-	return false
+
+	archf, err := n.getArchive()
+	if err != nil {
+		return false
+	}
+
+	n.zipr, err = ZipReaderFromFile(archf)
+	if err != nil {
+		log.Printf("zip.NewReader() failed: %v\n", err)
+		archf.Close()
+		return false
+	}
+
+	for _, f := range n.zipr.File {
+		n.fs.DbgPrintf("   %q\n", f.Name)
+
+		node := &buildArtifactNode{
+			Node: nodefs.NewDefaultNode(),
+			f:    f,
+		}
+
+		n.Inode().NewChild(f.Name, false, node)
+	}
+
+	return true
 }
 
 func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -454,4 +522,42 @@ func (n *buildArtifactsDirNode) Lookup(out *fuse.Attr, name string, context *fus
 	}
 
 	return ch, ch.Node().GetAttr(out, nil, context)
+}
+
+/*****/
+
+type buildArtifactNode struct {
+	nodefs.Node
+	f *zip.File
+}
+
+func (n *buildArtifactNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	if file != nil {
+		return file.GetAttr(out)
+	}
+	out.Mode = fuse.S_IFREG | 0444
+	out.Size = n.f.UncompressedSize64
+	return fuse.OK
+}
+
+func (n *buildArtifactNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+	if flags&fuse.O_ANYWRITE != 0 {
+		return nil, fuse.EPERM
+	}
+
+	// Open the file from the zip archive
+	rc, err := n.f.Open()
+	if err != nil {
+		log.Printf("zip.File.Open() failed: %v\n", err)
+		return nil, fuse.EIO
+	}
+	defer rc.Close()
+
+	buf, err := ioutil.ReadAll(rc)
+	if err != nil {
+		log.Printf("ReadAll error: %v\n", err)
+		return nil, fuse.EIO
+	}
+
+	return nodefs.NewDataFile(buf), fuse.OK
 }
