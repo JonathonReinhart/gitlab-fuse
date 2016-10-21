@@ -557,8 +557,10 @@ func (n *buildArtifactNode) GetAttr(out *fuse.Attr, file nodefs.File, context *f
 		out.Mode = fuse.S_IFDIR | 0555
 		return fuse.OK
 	}
+	t := ConvertDosDateTime(n.f.ModifiedDate, n.f.ModifiedTime)
 	out.Mode = fuse.S_IFREG | 0444
 	out.Size = n.f.UncompressedSize64
+	out.Mtime = uint64(t.Unix())
 	return fuse.OK
 }
 
