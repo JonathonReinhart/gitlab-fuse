@@ -57,10 +57,14 @@ func (fs *GitlabFs) SetDebug(debug bool) {
 	fs.debug = debug
 }
 
-func (fs *GitlabFs) onMount() {
+func (fs *GitlabFs) DbgPrintf(format string, v ...interface{}) {
 	if fs.debug {
-		log.Print("onMount()\n")
+		log.Printf(format, v...)
 	}
+}
+
+func (fs *GitlabFs) onMount() {
+	fs.DbgPrintf("onMount()\n")
 
 	prjmap, err := GetAllVisibleProjects(fs.client)
 	if err != nil {
@@ -133,9 +137,7 @@ func (r *rootNode) OnMount(c *nodefs.FileSystemConnector) {
 }
 
 func (r *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	if r.fs.debug {
-		log.Printf("rootNode.Lookup(%q)\n", name)
-	}
+	r.fs.DbgPrintf("rootNode.Lookup(%q)\n", name)
 	return nil, fuse.ENOENT
 }
 
@@ -158,9 +160,7 @@ type projectNode struct {
 }
 
 func (n *projectNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	if n.fs.debug {
-		log.Printf("projectNode.Lookup(%q)\n", name)
-	}
+	n.fs.DbgPrintf("projectNode.Lookup(%q)\n", name)
 	return nil, fuse.ENOENT
 }
 
@@ -174,9 +174,7 @@ type projectDescNode struct {
 }
 
 func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
-	if n.fs.debug {
-		log.Printf("projectDescNode.Open(%d)\n", n.prjID)
-	}
+	n.fs.DbgPrintf("projectDescNode.Open(%d)\n", n.prjID)
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
@@ -246,9 +244,7 @@ func (n *projectBuildsNode) fetch() bool {
 }
 
 func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
-	if n.fs.debug {
-		log.Printf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
-	}
+	n.fs.DbgPrintf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
 
 	fs := n.fs
 	prjID := n.prjID
@@ -273,9 +269,7 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 }
 
 func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
-	if n.fs.debug {
-		log.Printf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
-	}
+	n.fs.DbgPrintf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -285,9 +279,7 @@ func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fus
 }
 
 func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	if n.fs.debug {
-		log.Printf("projectBuildsNode.Lookup(%q)\n", name)
-	}
+	n.fs.DbgPrintf("projectBuildsNode.Lookup(%q)\n", name)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
