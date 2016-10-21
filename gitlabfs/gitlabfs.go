@@ -487,17 +487,35 @@ func (n *buildArtifactsDirNode) fetch() bool {
 	}
 
 	for _, f := range n.zipr.File {
-		n.fs.DbgPrintf("   %q\n", f.Name)
-
-		node := &buildArtifactNode{
-			Node: nodefs.NewDefaultNode(),
-			f:    f,
-		}
-
-		n.Inode().NewChild(f.Name, false, node)
+		n.addFile(f)
 	}
 
 	return true
+}
+
+func (n *buildArtifactsDirNode) addFile(f *zip.File) {
+	n.fs.DbgPrintf("   %q\n", f.Name)
+	comps := strings.Split(f.Name, "/")
+
+	node := n.Inode()
+	for i, c := range comps {
+		isFile := i == len(comps)-1
+
+		// Does this node exist?
+		child := node.GetChild(c)
+		if child == nil {
+			// Create it
+			fsnode := &buildArtifactNode{
+				Node: nodefs.NewDefaultNode(),
+			}
+			if isFile {
+				fsnode.f = f
+			}
+
+			child = node.NewChild(c, !isFile, fsnode)
+		}
+		node = child
+	}
 }
 
 func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -534,6 +552,10 @@ type buildArtifactNode struct {
 func (n *buildArtifactNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
 	if file != nil {
 		return file.GetAttr(out)
+	}
+	if n.Inode().IsDir() {
+		out.Mode = fuse.S_IFDIR | 0555
+		return fuse.OK
 	}
 	out.Mode = fuse.S_IFREG | 0444
 	out.Size = n.f.UncompressedSize64
