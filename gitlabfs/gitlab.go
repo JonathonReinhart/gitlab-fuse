@@ -4,8 +4,18 @@ import (
 	"github.com/xanzy/go-gitlab"
 )
 
+type GitlabClient struct {
+	*gitlab.Client
+}
+
+func NewGitlabClient(client *gitlab.Client) *GitlabClient {
+	return &GitlabClient{
+		Client: client,
+	}
+}
+
 // GetAllVisibleProjects returns a map of namespace to a list of Projects in that namespace.
-func GetAllVisibleProjects(git *gitlab.Client) (map[string][]*gitlab.Project, error) {
+func (git *GitlabClient) GetAllVisibleProjects() (map[string][]*gitlab.Project, error) {
 	result := make(map[string][]*gitlab.Project)
 
 	opt := gitlab.ListProjectsOptions{
@@ -37,7 +47,7 @@ func GetAllVisibleProjects(git *gitlab.Client) (map[string][]*gitlab.Project, er
 	return result, nil
 }
 
-func GetAllProjectBuilds(git *gitlab.Client, pid interface{}) ([]gitlab.Build, error) {
+func (git *GitlabClient) GetAllProjectBuilds(pid interface{}) ([]gitlab.Build, error) {
 	result := make([]gitlab.Build, 0)
 
 	opt := gitlab.ListBuildsOptions{

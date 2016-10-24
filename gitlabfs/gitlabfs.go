@@ -41,14 +41,14 @@ import (
 /* GitlabFs */
 
 type GitlabFs struct {
-	client *gitlab.Client
+	client *GitlabClient
 	root   *rootNode
 	debug  *log.Logger
 }
 
 func NewGitlabFs(client *gitlab.Client) *GitlabFs {
 	fs := &GitlabFs{
-		client: client,
+		client: NewGitlabClient(client),
 	}
 	fs.root = NewRootNode(fs)
 
@@ -68,7 +68,7 @@ func (fs *GitlabFs) SetDebugLogOutput(w io.Writer) {
 func (fs *GitlabFs) onMount() {
 	fs.debug.Println("onMount()")
 
-	prjmap, err := GetAllVisibleProjects(fs.client)
+	prjmap, err := fs.client.GetAllVisibleProjects()
 	if err != nil {
 		// TODO: Not sure how to make this error visible
 		// Maybe this fetch should actually go somewhere
@@ -220,7 +220,7 @@ func (n *projectBuildsNode) fetch() bool {
 	}
 
 	// Get all of the builds from the API
-	blds, err := GetAllProjectBuilds(n.fs.client, prj.ID)
+	blds, err := n.fs.client.GetAllProjectBuilds(prj.ID)
 	if err != nil {
 		log.Printf("GetAllProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
 		return false
