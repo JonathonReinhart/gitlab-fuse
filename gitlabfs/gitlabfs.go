@@ -43,7 +43,7 @@ import (
 type GitlabFs struct {
 	client *gitlab.Client
 	root   *rootNode
-	debug  bool
+	debug  *log.Logger
 }
 
 func NewGitlabFs(client *gitlab.Client) *GitlabFs {
@@ -51,6 +51,9 @@ func NewGitlabFs(client *gitlab.Client) *GitlabFs {
 		client: client,
 	}
 	fs.root = NewRootNode(fs)
+
+	fs.debug = log.New(ioutil.Discard, "DEBUG: ", log.Lshortfile|log.LstdFlags)
+
 	return fs
 }
 
@@ -58,18 +61,12 @@ func (fs *GitlabFs) Root() nodefs.Node {
 	return fs.root
 }
 
-func (fs *GitlabFs) SetDebug(debug bool) {
-	fs.debug = debug
-}
-
-func (fs *GitlabFs) DbgPrintf(format string, v ...interface{}) {
-	if fs.debug {
-		log.Printf(format, v...)
-	}
+func (fs *GitlabFs) SetDebugLogOutput(w io.Writer) {
+	fs.debug.SetOutput(w)
 }
 
 func (fs *GitlabFs) onMount() {
-	fs.DbgPrintf("onMount()\n")
+	fs.debug.Println("onMount()")
 
 	prjmap, err := GetAllVisibleProjects(fs.client)
 	if err != nil {
@@ -142,7 +139,7 @@ func (r *rootNode) OnMount(c *nodefs.FileSystemConnector) {
 }
 
 func (r *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	r.fs.DbgPrintf("rootNode.Lookup(%q)\n", name)
+	r.fs.debug.Printf("rootNode.Lookup(%q)\n", name)
 	return nil, fuse.ENOENT
 }
 
@@ -165,7 +162,7 @@ type projectNode struct {
 }
 
 func (n *projectNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	n.fs.DbgPrintf("projectNode.Lookup(%q)\n", name)
+	n.fs.debug.Printf("projectNode.Lookup(%q)\n", name)
 	return nil, fuse.ENOENT
 }
 
@@ -179,7 +176,7 @@ type projectDescNode struct {
 }
 
 func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
-	n.fs.DbgPrintf("projectDescNode.Open(%d)\n", n.prjID)
+	n.fs.debug.Printf("projectDescNode.Open(%d)\n", n.prjID)
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
@@ -249,7 +246,7 @@ func (n *projectBuildsNode) fetch() bool {
 }
 
 func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
-	n.fs.DbgPrintf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
+	n.fs.debug.Printf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
 
 	fs := n.fs
 	prjID := n.prjID
@@ -277,7 +274,7 @@ func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
 }
 
 func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
-	n.fs.DbgPrintf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
+	n.fs.debug.Printf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -287,7 +284,7 @@ func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fus
 }
 
 func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	n.fs.DbgPrintf("projectBuildsNode.Lookup(%q)\n", name)
+	n.fs.debug.Printf("projectBuildsNode.Lookup(%q)\n", name)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -432,7 +429,7 @@ func NewBuildArtifactsDirNode(fs *GitlabFs, prjID, bldID int) *buildArtifactsDir
 }
 
 func (n *buildArtifactsDirNode) getArchive() (*os.File, error) {
-	n.fs.DbgPrintf("Getting artifact archive for prjID=%d, bldID=%d\n", n.prjID, n.bldID)
+	n.fs.debug.Printf("Getting artifact archive for prjID=%d, bldID=%d\n", n.prjID, n.bldID)
 
 	// Get its name
 	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
@@ -494,7 +491,7 @@ func (n *buildArtifactsDirNode) fetch() bool {
 }
 
 func (n *buildArtifactsDirNode) addFile(f *zip.File) {
-	n.fs.DbgPrintf("   %q\n", f.Name)
+	n.fs.debug.Printf("   %q\n", f.Name)
 	comps := strings.Split(f.Name, "/")
 
 	node := n.Inode()
@@ -519,7 +516,7 @@ func (n *buildArtifactsDirNode) addFile(f *zip.File) {
 }
 
 func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
-	n.fs.DbgPrintf("buildArtifactsDirNode.OpenDir() (prjID=%d bldID=%d)\n", n.prjID, n.bldID)
+	n.fs.debug.Printf("buildArtifactsDirNode.OpenDir() (prjID=%d bldID=%d)\n", n.prjID, n.bldID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -529,7 +526,7 @@ func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry,
 }
 
 func (n *buildArtifactsDirNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	n.fs.DbgPrintf("buildArtifactsDirNode.Lookup(%q) (prjID=%d bldID=%d)\n", name, n.prjID, n.bldID)
+	n.fs.debug.Printf("buildArtifactsDirNode.Lookup(%q) (prjID=%d bldID=%d)\n", name, n.prjID, n.bldID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
