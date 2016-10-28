@@ -65,7 +65,9 @@ func main() {
 
 	// Create GitlabFs
 	fs := gitlabfs.NewGitlabFs(git)
-	fs.SetDebug(*debug)
+	if *debug {
+		fs.SetDebugLogOutput(os.Stderr)
+	}
 
 	// Create FS connector
 	opts := &nodefs.Options{

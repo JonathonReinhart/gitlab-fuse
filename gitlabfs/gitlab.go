@@ -1,11 +1,32 @@
 package gitlabfs
 
 import (
+	"io"
+	"io/ioutil"
+	"log"
+	"time"
+
 	"github.com/xanzy/go-gitlab"
 )
 
+type GitlabClient struct {
+	*gitlab.Client
+	debug *log.Logger
+}
+
+func NewGitlabClient(client *gitlab.Client) *GitlabClient {
+	return &GitlabClient{
+		Client: client,
+		debug:  log.New(ioutil.Discard, "GITLAB: ", log.Lshortfile|log.LstdFlags),
+	}
+}
+
+func (git *GitlabClient) SetDebugLogOutput(w io.Writer) {
+	git.debug.SetOutput(w)
+}
+
 // GetAllVisibleProjects returns a map of namespace to a list of Projects in that namespace.
-func GetAllVisibleProjects(git *gitlab.Client) (map[string][]*gitlab.Project, error) {
+func (git *GitlabClient) getAllVisibleProjects() (map[string][]*gitlab.Project, error) {
 	result := make(map[string][]*gitlab.Project)
 
 	opt := gitlab.ListProjectsOptions{
@@ -37,7 +58,16 @@ func GetAllVisibleProjects(git *gitlab.Client) (map[string][]*gitlab.Project, er
 	return result, nil
 }
 
-func GetAllProjectBuilds(git *gitlab.Client, pid interface{}) ([]gitlab.Build, error) {
+func (git *GitlabClient) GetAllVisibleProjects() (map[string][]*gitlab.Project, error) {
+	t0 := time.Now()
+	result, err := git.getAllVisibleProjects()
+	dt := time.Now().Sub(t0)
+
+	git.debug.Printf("GetAllVisibleProjects() => %d records in %v\n", len(result), dt)
+	return result, err
+}
+
+func (git *GitlabClient) getAllProjectBuilds(pid interface{}) ([]gitlab.Build, error) {
 	result := make([]gitlab.Build, 0)
 
 	opt := gitlab.ListBuildsOptions{
@@ -63,4 +93,13 @@ func GetAllProjectBuilds(git *gitlab.Client, pid interface{}) ([]gitlab.Build, e
 	}
 
 	return result, nil
+}
+
+func (git *GitlabClient) GetAllProjectBuilds(pid interface{}) ([]gitlab.Build, error) {
+	t0 := time.Now()
+	result, err := git.getAllProjectBuilds(pid)
+	dt := time.Now().Sub(t0)
+
+	git.debug.Printf("GetAllProjectsBuilds() => %d records in %v\n", len(result), dt)
+	return result, err
 }
