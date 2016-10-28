@@ -63,6 +63,7 @@ func (fs *GitlabFs) Root() nodefs.Node {
 
 func (fs *GitlabFs) SetDebugLogOutput(w io.Writer) {
 	fs.debug.SetOutput(w)
+	fs.client.SetDebugLogOutput(w)
 }
 
 func (fs *GitlabFs) onMount() {
