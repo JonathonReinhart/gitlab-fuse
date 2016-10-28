@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
@@ -40,15 +41,26 @@ import (
 /******************************************************************************/
 /* GitlabFs */
 
+type Options struct {
+	// The minimum amount of time between updates to a project builds/ directory
+	MinBuildsDirUpdateDelay time.Duration
+}
+
 type GitlabFs struct {
 	client *GitlabClient
 	root   *rootNode
 	debug  *log.Logger
+	opts   *Options
 }
 
-func NewGitlabFs(client *gitlab.Client) *GitlabFs {
+func NewGitlabFs(client *gitlab.Client, opts *Options) *GitlabFs {
+	if opts == nil {
+		opts = &Options{}
+	}
+
 	fs := &GitlabFs{
 		client: NewGitlabClient(client),
+		opts:   opts,
 	}
 	fs.root = NewRootNode(fs)
 
@@ -203,11 +215,22 @@ func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fus
 
 type projectBuildsNode struct {
 	nodefs.Node
-	fs    *GitlabFs
-	prjID int
+	fs         *GitlabFs
+	prjID      int
+	lastUpdate time.Time
 }
 
 func (n *projectBuildsNode) fetch() bool {
+	sinceLastUpdate := time.Since(n.lastUpdate)
+	n.fs.debug.Printf("projectBuildsNode.fetch() sinceLastUpdate=%v\n", sinceLastUpdate)
+
+	// Is it time to update yet?
+	if sinceLastUpdate < n.fs.opts.MinBuildsDirUpdateDelay {
+		// Not time yet
+		return true
+	}
+	n.lastUpdate = time.Now()
+
 	// Look up this project's info
 	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/JonathonReinhart/gitlab-fuse/gitlabfs"
 	"github.com/hanwen/go-fuse/fuse"
@@ -40,6 +41,22 @@ func handleSigint(srv *fuse.Server, mountpoint string) {
 	}()
 }
 
+func getGitlabFsOpts() *gitlabfs.Options {
+	opts := &gitlabfs.Options{
+		MinBuildsDirUpdateDelay: 1 * time.Minute,
+	}
+
+	if sval := os.Getenv("GITLABFS_MIN_BUILDS_DIR_UPDATE_DELAY"); len(sval) != 0 {
+		dur, err := time.ParseDuration(sval)
+		if err != nil {
+			log.Fatal(err)
+		}
+		opts.MinBuildsDirUpdateDelay = dur
+	}
+
+	return opts
+}
+
 func main() {
 	// Parse arguments
 	url := flag.String("url", os.Getenv("GITLAB_URL"), "GitLab URL")
@@ -64,7 +81,7 @@ func main() {
 	git.SetBaseURL(*url)
 
 	// Create GitlabFs
-	fs := gitlabfs.NewGitlabFs(git)
+	fs := gitlabfs.NewGitlabFs(git, getGitlabFsOpts())
 	if *debug {
 		fs.SetDebugLogOutput(os.Stderr)
 	}
