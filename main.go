@@ -78,9 +78,10 @@ func main() {
 
 	// Create the FUSE server
 	mntOpts := &fuse.MountOptions{
-		Debug:  *fusedebug,
-		FsName: *url,
-		Name:   "gitlab",
+		Debug:          *fusedebug,
+		FsName:         *url,
+		Name:           "gitlab",
+		SingleThreaded: true,
 	}
 	server, err := fuse.NewServer(conn.RawFS(), mountpoint, mntOpts)
 	if err != nil {
