@@ -157,6 +157,30 @@ func (r *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*
 }
 
 /******************************************************************************/
+/* Symlinks */
+
+type symlinkNode struct {
+	nodefs.Node
+	link string
+}
+
+func NewSymlinkNode(link string) *symlinkNode {
+	return &symlinkNode{
+		Node: nodefs.NewDefaultNode(),
+		link: link,
+	}
+}
+
+func (n *symlinkNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	out.Mode = fuse.S_IFLNK | 0777
+	return fuse.OK
+}
+
+func (n *symlinkNode) Readlink(c *fuse.Context) ([]byte, fuse.Status) {
+	return []byte(n.link), fuse.OK
+}
+
+/******************************************************************************/
 /* Namespace */
 
 type namespaceNode struct {
