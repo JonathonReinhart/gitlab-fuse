@@ -358,9 +358,9 @@ func (n *buildStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
-	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
+	bld, _, err := n.fs.client.Builds.GetBuild(n.prjID, n.bldID)
 	if err != nil {
-		log.Printf("GetSingleBuild(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetBuild(%d, %d) error: %v\n", n.prjID, n.bldID, err)
 		return nil, fuse.EIO
 	}
 	return nodefs.NewDataFile([]byte(bld.Status + "\n")), fuse.OK
@@ -456,9 +456,9 @@ func (n *buildArtifactsDirNode) getArchive() (*os.File, error) {
 	n.fs.debug.Printf("Getting artifact archive for prjID=%d, bldID=%d\n", n.prjID, n.bldID)
 
 	// Get its name
-	bld, _, err := n.fs.client.Builds.GetSingleBuild(n.prjID, n.bldID)
+	bld, _, err := n.fs.client.Builds.GetBuild(n.prjID, n.bldID)
 	if err != nil {
-		log.Printf("GetSingleBuild(prjID=%d bldID=%d) failed: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetBuild(prjID=%d bldID=%d) failed: %v\n", n.prjID, n.bldID, err)
 		return nil, err
 	}
 	filename := bld.ArtifactsFile.Filename
