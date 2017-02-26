@@ -278,7 +278,12 @@ func (n *projectBuildsNode) fetch() bool {
 	existing := n.Inode().Children()
 
 	// Add new ones
+	maxbldID := 0
 	for _, bld := range blds {
+		if bld.ID > maxbldID {
+			maxbldID = bld.ID
+		}
+
 		bldName := strconv.Itoa(bld.ID)
 
 		_, exists := existing[bldName]
@@ -289,6 +294,9 @@ func (n *projectBuildsNode) fetch() bool {
 	}
 
 	// TODO: Remove ones that no longer exist -- Can this even happen with GitLab?
+
+	// Make "latest" symlink
+	n.Inode().NewChild("latest", false, NewSymlinkNode(strconv.Itoa(maxbldID)))
 
 	return true
 }
