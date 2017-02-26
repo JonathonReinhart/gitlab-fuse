@@ -157,6 +157,30 @@ func (r *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*
 }
 
 /******************************************************************************/
+/* Symlinks */
+
+type symlinkNode struct {
+	nodefs.Node
+	link string
+}
+
+func NewSymlinkNode(link string) *symlinkNode {
+	return &symlinkNode{
+		Node: nodefs.NewDefaultNode(),
+		link: link,
+	}
+}
+
+func (n *symlinkNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+	out.Mode = fuse.S_IFLNK | 0777
+	return fuse.OK
+}
+
+func (n *symlinkNode) Readlink(c *fuse.Context) ([]byte, fuse.Status) {
+	return []byte(n.link), fuse.OK
+}
+
+/******************************************************************************/
 /* Namespace */
 
 type namespaceNode struct {
@@ -254,7 +278,12 @@ func (n *projectBuildsNode) fetch() bool {
 	existing := n.Inode().Children()
 
 	// Add new ones
+	maxbldID := 0
 	for _, bld := range blds {
+		if bld.ID > maxbldID {
+			maxbldID = bld.ID
+		}
+
 		bldName := strconv.Itoa(bld.ID)
 
 		_, exists := existing[bldName]
@@ -265,6 +294,9 @@ func (n *projectBuildsNode) fetch() bool {
 	}
 
 	// TODO: Remove ones that no longer exist -- Can this even happen with GitLab?
+
+	// Make "latest" symlink
+	n.Inode().NewChild("latest", false, NewSymlinkNode(strconv.Itoa(maxbldID)))
 
 	return true
 }
