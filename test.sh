@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if [ $# -lt 1 ]; then
+    echo "Usage: $(basename $0) testpath"
+    exit 1
+fi
+
 testpath="$1"
 
 echo -en "\ec"
