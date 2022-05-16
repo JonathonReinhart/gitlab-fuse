@@ -43,7 +43,7 @@ import (
 
 type Options struct {
 	// The minimum amount of time between updates to a project jobs/ directory
-	MinBuildsDirUpdateDelay time.Duration	// TODO: rename
+	MinJobsDirUpdateDelay time.Duration
 }
 
 type GitlabFs struct {
@@ -249,7 +249,7 @@ func (n *projectJobsNode) fetch() bool {
 	n.fs.debug.Printf("projectJobsNode.fetch() sinceLastUpdate=%v\n", sinceLastUpdate)
 
 	// Is it time to update yet?
-	if sinceLastUpdate < n.fs.opts.MinBuildsDirUpdateDelay {
+	if sinceLastUpdate < n.fs.opts.MinJobsDirUpdateDelay {
 		// Not time yet
 		return true
 	}

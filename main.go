@@ -43,15 +43,15 @@ func handleSigint(srv *fuse.Server, mountpoint string) {
 
 func getGitlabFsOpts() *gitlabfs.Options {
 	opts := &gitlabfs.Options{
-		MinBuildsDirUpdateDelay: 1 * time.Minute,
+		MinJobsDirUpdateDelay: 1 * time.Minute,
 	}
 
-	if sval := os.Getenv("GITLABFS_MIN_BUILDS_DIR_UPDATE_DELAY"); len(sval) != 0 {
+	if sval := os.Getenv("GITLABFS_MIN_JOBS_DIR_UPDATE_DELAY"); len(sval) != 0 {
 		dur, err := time.ParseDuration(sval)
 		if err != nil {
 			log.Fatal(err)
 		}
-		opts.MinBuildsDirUpdateDelay = dur
+		opts.MinJobsDirUpdateDelay = dur
 	}
 
 	return opts
