@@ -29,6 +29,8 @@ import (
  *                    individual.bin
  *                    artifacts.bin
  *                <artifacts_filename>
+ *        pipelines/
+ *		      <pipeline_id>/
  */
 
 /**
@@ -118,6 +120,12 @@ func (fs *GitlabFs) onMount() {
 			if prj.JobsEnabled {
 				prjInode.NewChild("jobs", true,
 					&projectJobsNode{
+						Node:  nodefs.NewDefaultNode(),
+						fs:    fs,
+						prjID: prj.ID,
+					})
+				prjInode.NewChild("pipelines", true,
+					&projectPipelinesNode{
 						Node:  nodefs.NewDefaultNode(),
 						fs:    fs,
 						prjID: prj.ID,
@@ -235,6 +243,123 @@ func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fus
 }
 
 /******************************************************************************/
+/* Project pipelines */
+
+type projectPipelinesNode struct {
+	nodefs.Node
+	fs         *GitlabFs
+	prjID      int
+	lastUpdate time.Time
+}
+
+func (n *projectPipelinesNode) fetch() bool {
+	log.Printf("projectPipeliensNode.fetch()\n")
+
+	// TODO: DRY with projectJobsNode.fetch()
+	sinceLastUpdate := time.Since(n.lastUpdate)
+	n.fs.debug.Printf("projectPipelinesNode.fetch() sinceLastUpdate=%v\n", sinceLastUpdate)
+
+	// Is it time to update yet?
+	if sinceLastUpdate < n.fs.opts.MinJobsDirUpdateDelay {
+		// Not time yet
+		return true
+	}
+	n.lastUpdate = time.Now()
+
+	// Look up this project's info
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID, nil)
+	if err != nil {
+		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
+		return false
+	}
+
+	if !prj.JobsEnabled {
+		// TODO: ENOENT?
+		return true
+	}
+
+	// Get all of the pipelines from the API
+	pipelines, err := n.fs.client.GetAllProjectPipelines(prj.ID)
+	if err != nil {
+		log.Printf("GetAllProjectPipelines() error: %v\n", prj.PathWithNamespace, err)
+		return false
+	}
+
+	log.Printf("GetAllProjectPipelines() returned %v results\n", len(pipelines))
+
+	// Get a map of all existing pipeline inodes
+	existing := n.Inode().Children()
+
+	// Add new ones
+	maxPipelineID := 0
+	for _, p := range pipelines {
+		if p.ID > maxPipelineID {
+			maxPipelineID = p.ID
+		}
+
+		pipelineName := strconv.Itoa(p.ID)
+
+		_, exists := existing[pipelineName]
+		if !exists {
+			n.addNewPipelineDirNode(p)
+			continue
+		}
+	}
+
+	// TODO: Remove ones that no longer exist -- Can this even happen with GitLab?
+
+	// Make "latest" symlink
+	n.Inode().NewChild("latest", false, NewSymlinkNode(strconv.Itoa(maxPipelineID)))
+
+	return true
+}
+
+func (n *projectPipelinesNode) addNewPipelineDirNode(pi *gitlab.PipelineInfo) {
+	// TODO DRY with addNewJobDirNode
+	n.fs.debug.Printf("Adding new pipeline inode (%d) to project (%d)\n", pi.ID, n.prjID)
+
+	//fs := n.fs
+	//prjID := n.prjID
+	//pipelineID := pi.ID
+
+	// Add the pipelines/1234 directory
+	dirInode := n.Inode().NewChild(strconv.Itoa(pi.ID), true, nodefs.NewDefaultNode())
+	_ = dirInode
+
+	// Add the pipelines/1234/xxx files
+	//dirInode.NewChild("status", false, &jobStatusNode{
+	//	jobNode: NewJobNode(fs, prjID, jobID),
+	//})
+	// TODO: symlinks to ../jobs/1234
+}
+
+// TODO DRY with projectJobsNode.OpenDir()
+func (n *projectPipelinesNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+	n.fs.debug.Printf("projectPipelinesNode.OpenDir(%d)\n", n.prjID)
+
+	if !n.fetch() {
+		return nil, fuse.EIO
+	}
+
+	return n.Node.OpenDir(context)
+}
+
+func (n *projectPipelinesNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
+	n.fs.debug.Printf("projectPipelinesNode.Lookup(%q)\n", name)
+
+	if !n.fetch() {
+		return nil, fuse.EIO
+	}
+	ch := n.Inode().GetChild(name)
+	if ch == nil {
+		return nil, fuse.ENOENT
+	}
+
+	return ch, ch.Node().GetAttr(out, nil, context)
+}
+
+
+/******************************************************************************/
 /* Project jobs */
 
 type projectJobsNode struct {
@@ -300,6 +425,7 @@ func (n *projectJobsNode) fetch() bool {
 
 	return true
 }
+
 
 func (n *projectJobsNode) addNewJobDirNode(job *gitlab.Job) {
 	n.fs.debug.Printf("Adding new job inode (%d) to project (%d)\n", job.ID, n.prjID)

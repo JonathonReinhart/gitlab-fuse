@@ -103,3 +103,42 @@ func (git *GitlabClient) GetAllProjectJobs(pid interface{}) ([]*gitlab.Job, erro
 	git.debug.Printf("GetAllProjectsJobs() => %d records in %v\n", len(result), dt)
 	return result, err
 }
+
+/******************************************************************************/
+
+func (git *GitlabClient) getAllProjectPipelines(pid interface{}) ([]*gitlab.PipelineInfo, error) {
+	result := make([]*gitlab.PipelineInfo, 0)
+
+	opt := gitlab.ListProjectPipelinesOptions{
+		ListOptions: gitlab.ListOptions{
+			Page:    1,
+			PerPage: 100,
+		},
+	}
+
+	for {
+		jobs, resp, err := git.Pipelines.ListProjectPipelines(pid, &opt)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, jobs...)
+
+		// Go to the next page
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.ListOptions.Page = resp.NextPage
+	}
+
+	return result, nil
+}
+
+func (git *GitlabClient) GetAllProjectPipelines(pid interface{}) ([]*gitlab.PipelineInfo, error) {
+	t0 := time.Now()
+	result, err := git.getAllProjectPipelines(pid)
+	dt := time.Now().Sub(t0)
+
+	git.debug.Printf("GetAllProjectPipelines() => %d records in %v\n", len(result), dt)
+	return result, err
+}
