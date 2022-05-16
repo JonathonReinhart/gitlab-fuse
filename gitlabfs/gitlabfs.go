@@ -21,8 +21,8 @@ import (
  * Paths are composed like this:
  * <namespace>/
  *    <project>/
- *        builds/
- *            <build_id>/
+ *        jobs/
+ *            <job_id>/
  *                status
  *                trace
  *                artifacts/
@@ -42,8 +42,8 @@ import (
 /* GitlabFs */
 
 type Options struct {
-	// The minimum amount of time between updates to a project builds/ directory
-	MinBuildsDirUpdateDelay time.Duration
+	// The minimum amount of time between updates to a project jobs/ directory
+	MinJobsDirUpdateDelay time.Duration
 }
 
 type GitlabFs struct {
@@ -115,9 +115,9 @@ func (fs *GitlabFs) onMount() {
 					prjID: prj.ID,
 				})
 
-			if prj.BuildsEnabled {
-				prjInode.NewChild("builds", true,
-					&projectBuildsNode{
+			if prj.JobsEnabled {
+				prjInode.NewChild("jobs", true,
+					&projectJobsNode{
 						Node:  nodefs.NewDefaultNode(),
 						fs:    fs,
 						prjID: prj.ID,
@@ -217,7 +217,7 @@ func (n *projectDescNode) Open(flags uint32, context *fuse.Context) (nodefs.File
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
-	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID, nil)
 	if err != nil {
 		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
 		return nil, fuse.EIO
@@ -235,60 +235,60 @@ func (n *projectDescNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fus
 }
 
 /******************************************************************************/
-/* Project builds */
+/* Project jobs */
 
-type projectBuildsNode struct {
+type projectJobsNode struct {
 	nodefs.Node
 	fs         *GitlabFs
 	prjID      int
 	lastUpdate time.Time
 }
 
-func (n *projectBuildsNode) fetch() bool {
+func (n *projectJobsNode) fetch() bool {
 	sinceLastUpdate := time.Since(n.lastUpdate)
-	n.fs.debug.Printf("projectBuildsNode.fetch() sinceLastUpdate=%v\n", sinceLastUpdate)
+	n.fs.debug.Printf("projectJobsNode.fetch() sinceLastUpdate=%v\n", sinceLastUpdate)
 
 	// Is it time to update yet?
-	if sinceLastUpdate < n.fs.opts.MinBuildsDirUpdateDelay {
+	if sinceLastUpdate < n.fs.opts.MinJobsDirUpdateDelay {
 		// Not time yet
 		return true
 	}
 	n.lastUpdate = time.Now()
 
 	// Look up this project's info
-	prj, _, err := n.fs.client.Projects.GetProject(n.prjID)
+	prj, _, err := n.fs.client.Projects.GetProject(n.prjID, nil)
 	if err != nil {
 		log.Printf("GetProject(%d) error: %v\n", n.prjID, err)
 		return false
 	}
 
-	if !prj.BuildsEnabled {
+	if !prj.JobsEnabled {
 		// TODO: ENOENT?
 		return true
 	}
 
-	// Get all of the builds from the API
-	blds, err := n.fs.client.GetAllProjectBuilds(prj.ID)
+	// Get all of the jobs from the API
+	jobs, err := n.fs.client.GetAllProjectJobs(prj.ID)
 	if err != nil {
-		log.Printf("GetAllProjectBuilds() error: %v\n", prj.PathWithNamespace, err)
+		log.Printf("GetAllProjectJobs() error: %v\n", prj.PathWithNamespace, err)
 		return false
 	}
 
-	// Get a map of all existing build inodes
+	// Get a map of all existing job inodes
 	existing := n.Inode().Children()
 
 	// Add new ones
-	maxbldID := 0
-	for _, bld := range blds {
-		if bld.ID > maxbldID {
-			maxbldID = bld.ID
+	maxjobID := 0
+	for _, job := range jobs {
+		if job.ID > maxjobID {
+			maxjobID = job.ID
 		}
 
-		bldName := strconv.Itoa(bld.ID)
+		jobName := strconv.Itoa(job.ID)
 
-		_, exists := existing[bldName]
+		_, exists := existing[jobName]
 		if !exists {
-			n.addNewBuildDirNode(&bld)
+			n.addNewJobDirNode(job)
 			continue
 		}
 	}
@@ -296,41 +296,41 @@ func (n *projectBuildsNode) fetch() bool {
 	// TODO: Remove ones that no longer exist -- Can this even happen with GitLab?
 
 	// Make "latest" symlink
-	n.Inode().NewChild("latest", false, NewSymlinkNode(strconv.Itoa(maxbldID)))
+	n.Inode().NewChild("latest", false, NewSymlinkNode(strconv.Itoa(maxjobID)))
 
 	return true
 }
 
-func (n *projectBuildsNode) addNewBuildDirNode(bld *gitlab.Build) {
-	n.fs.debug.Printf("Adding new build inode (%d) to project (%d)\n", bld.ID, n.prjID)
+func (n *projectJobsNode) addNewJobDirNode(job *gitlab.Job) {
+	n.fs.debug.Printf("Adding new job inode (%d) to project (%d)\n", job.ID, n.prjID)
 
 	fs := n.fs
 	prjID := n.prjID
-	bldID := bld.ID
-	bldName := strconv.Itoa(bld.ID)
+	jobID := job.ID
+	jobName := strconv.Itoa(job.ID)
 
-	// Add the builds/1234 directory
-	bldDirInode := n.Inode().NewChild(bldName, true, nodefs.NewDefaultNode())
+	// Add the jobs/1234 directory
+	jobDirInode := n.Inode().NewChild(jobName, true, nodefs.NewDefaultNode())
 
-	// Add the builds/1234/xxx files
-	bldDirInode.NewChild("status", false, &buildStatusNode{
-		buildNode: NewBuildNode(fs, prjID, bldID),
+	// Add the jobs/1234/xxx files
+	jobDirInode.NewChild("status", false, &jobStatusNode{
+		jobNode: NewJobNode(fs, prjID, jobID),
 	})
-	bldDirInode.NewChild("trace", false, &buildTraceNode{
-		buildNode: NewBuildNode(fs, prjID, bldID),
+	jobDirInode.NewChild("trace", false, &jobTraceNode{
+		jobNode: NewJobNode(fs, prjID, jobID),
 	})
-	bldDirInode.NewChild(bld.ArtifactsFile.Filename, false, &buildArtifactsArchiveNode{
-		buildNode: NewBuildNode(fs, prjID, bldID),
-		size:      uint64(bld.ArtifactsFile.Size),
+	jobDirInode.NewChild(job.ArtifactsFile.Filename, false, &jobArtifactsArchiveNode{
+		jobNode: NewJobNode(fs, prjID, jobID),
+		size:      uint64(job.ArtifactsFile.Size),
 	})
-	if bld.ArtifactsFile.Size > 0 {
-		bldDirInode.NewChild("artifacts", true, NewBuildArtifactsDirNode(fs, prjID, bldID))
+	if job.ArtifactsFile.Size > 0 {
+		jobDirInode.NewChild("artifacts", true, NewJobArtifactsDirNode(fs, prjID, jobID))
 	}
 
 }
 
-func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
-	n.fs.debug.Printf("projectBuildsNode.OpenDir(%d)\n", n.prjID)
+func (n *projectJobsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+	n.fs.debug.Printf("projectJobsNode.OpenDir(%d)\n", n.prjID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -339,8 +339,8 @@ func (n *projectBuildsNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fus
 	return n.Node.OpenDir(context)
 }
 
-func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	n.fs.debug.Printf("projectBuildsNode.Lookup(%q)\n", name)
+func (n *projectJobsNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
+	n.fs.debug.Printf("projectJobsNode.Lookup(%q)\n", name)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -355,23 +355,23 @@ func (n *projectBuildsNode) Lookup(out *fuse.Attr, name string, context *fuse.Co
 
 /******************************************************************************/
 
-type buildNode struct {
+type jobNode struct {
 	nodefs.Node
 	fs    *GitlabFs
 	prjID int
-	bldID int
+	jobID int
 }
 
-func NewBuildNode(fs *GitlabFs, prjID, bldID int) buildNode {
-	return buildNode{
+func NewJobNode(fs *GitlabFs, prjID, jobID int) jobNode {
+	return jobNode{
 		Node:  nodefs.NewDefaultNode(),
 		fs:    fs,
 		prjID: prjID,
-		bldID: bldID,
+		jobID: jobID,
 	}
 }
 
-func (n *buildNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+func (n *jobNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
 	if file != nil {
 		return file.GetAttr(out)
 	}
@@ -380,39 +380,39 @@ func (n *buildNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Cont
 }
 
 /******************************************************************************/
-/* builds/<id>/status */
+/* jobs/<id>/status */
 
-type buildStatusNode struct {
-	buildNode
+type jobStatusNode struct {
+	jobNode
 }
 
-func (n *buildStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+func (n *jobStatusNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
-	bld, _, err := n.fs.client.Builds.GetBuild(n.prjID, n.bldID)
+	job, _, err := n.fs.client.Jobs.GetJob(n.prjID, n.jobID)
 	if err != nil {
-		log.Printf("GetBuild(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetJob(%d, %d) error: %v\n", n.prjID, n.jobID, err)
 		return nil, fuse.EIO
 	}
-	return nodefs.NewDataFile([]byte(bld.Status + "\n")), fuse.OK
+	return nodefs.NewDataFile([]byte(job.Status + "\n")), fuse.OK
 }
 
 /******************************************************************************/
-/* builds/<id>/trace */
+/* jobs/<id>/trace */
 
-type buildTraceNode struct {
-	buildNode
+type jobTraceNode struct {
+	jobNode
 }
 
-func (n *buildTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+func (n *jobTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
 
-	traceReader, _, err := n.fs.client.Builds.GetTraceFile(n.prjID, n.bldID)
+	traceReader, _, err := n.fs.client.Jobs.GetTraceFile(n.prjID, n.jobID)
 	if err != nil {
-		log.Printf("GetTraceFile(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetTraceFile(%d, %d) error: %v\n", n.prjID, n.jobID, err)
 		return nil, fuse.EIO
 	}
 
@@ -426,14 +426,14 @@ func (n *buildTraceNode) Open(flags uint32, context *fuse.Context) (nodefs.File,
 }
 
 /******************************************************************************/
-/* builds/<id>/<artifacts_archive_name> */
+/* jobs/<id>/<artifacts_archive_name> */
 
-type buildArtifactsArchiveNode struct {
-	buildNode
+type jobArtifactsArchiveNode struct {
+	jobNode
 	size uint64
 }
 
-func (n *buildArtifactsArchiveNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+func (n *jobArtifactsArchiveNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
 	if file != nil {
 		return file.GetAttr(out)
 	}
@@ -442,14 +442,14 @@ func (n *buildArtifactsArchiveNode) GetAttr(out *fuse.Attr, file nodefs.File, co
 	return fuse.OK
 }
 
-func (n *buildArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+func (n *jobArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
 
-	artReader, _, err := n.fs.client.Builds.GetBuildArtifacts(n.prjID, n.bldID)
+	artReader, _, err := n.fs.client.Jobs.GetJobArtifacts(n.prjID, n.jobID)
 	if err != nil {
-		log.Printf("GetBuildArtifacts(%d, %d) error: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetJobArtifacts(%d, %d) error: %v\n", n.prjID, n.jobID, err)
 		return nil, fuse.EIO
 	}
 
@@ -464,45 +464,45 @@ func (n *buildArtifactsArchiveNode) Open(flags uint32, context *fuse.Context) (n
 }
 
 /******************************************************************************/
-/* builds/<id>/artifacts/ */
+/* jobs/<id>/artifacts/ */
 
-type buildArtifactsDirNode struct {
+type jobArtifactsDirNode struct {
 	nodefs.Node
 	fs    *GitlabFs
 	prjID int
-	bldID int
+	jobID int
 
 	zipr *ZipFileReader
 }
 
-func NewBuildArtifactsDirNode(fs *GitlabFs, prjID, bldID int) *buildArtifactsDirNode {
-	return &buildArtifactsDirNode{
+func NewJobArtifactsDirNode(fs *GitlabFs, prjID, jobID int) *jobArtifactsDirNode {
+	return &jobArtifactsDirNode{
 		Node:  nodefs.NewDefaultNode(),
 		prjID: prjID,
-		bldID: bldID,
+		jobID: jobID,
 		fs:    fs,
 	}
 }
 
-func (n *buildArtifactsDirNode) getArchive() (*os.File, error) {
-	n.fs.debug.Printf("Getting artifact archive for prjID=%d, bldID=%d\n", n.prjID, n.bldID)
+func (n *jobArtifactsDirNode) getArchive() (*os.File, error) {
+	n.fs.debug.Printf("Getting artifact archive for prjID=%d, jobID=%d\n", n.prjID, n.jobID)
 
 	// Get its name
-	bld, _, err := n.fs.client.Builds.GetBuild(n.prjID, n.bldID)
+	job, _, err := n.fs.client.Jobs.GetJob(n.prjID, n.jobID)
 	if err != nil {
-		log.Printf("GetBuild(prjID=%d bldID=%d) failed: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetJob(prjID=%d jobID=%d) failed: %v\n", n.prjID, n.jobID, err)
 		return nil, err
 	}
-	filename := bld.ArtifactsFile.Filename
+	filename := job.ArtifactsFile.Filename
 
 	if !strings.HasSuffix(filename, ".zip") {
 		return nil, errors.New("Only zip files are supported")
 	}
 
 	// Download the artifact
-	artReader, _, err := n.fs.client.Builds.GetBuildArtifacts(n.prjID, n.bldID)
+	artReader, _, err := n.fs.client.Jobs.GetJobArtifacts(n.prjID, n.jobID)
 	if err != nil {
-		log.Printf("GetBuildArtifacts(prjID=%d bldID=%d) failed: %v\n", n.prjID, n.bldID, err)
+		log.Printf("GetJobArtifacts(prjID=%d jobID=%d) failed: %v\n", n.prjID, n.jobID, err)
 		return nil, err
 	}
 
@@ -522,7 +522,7 @@ func (n *buildArtifactsDirNode) getArchive() (*os.File, error) {
 	return f, nil
 }
 
-func (n *buildArtifactsDirNode) fetch() bool {
+func (n *jobArtifactsDirNode) fetch() bool {
 	if n.zipr != nil {
 		return true
 	}
@@ -546,7 +546,7 @@ func (n *buildArtifactsDirNode) fetch() bool {
 	return true
 }
 
-func (n *buildArtifactsDirNode) addFile(f *zip.File) {
+func (n *jobArtifactsDirNode) addFile(f *zip.File) {
 	n.fs.debug.Printf("   %q\n", f.Name)
 	comps := strings.Split(f.Name, "/")
 
@@ -558,7 +558,7 @@ func (n *buildArtifactsDirNode) addFile(f *zip.File) {
 		child := node.GetChild(c)
 		if child == nil {
 			// Create it
-			fsnode := &buildArtifactNode{
+			fsnode := &jobArtifactNode{
 				Node: nodefs.NewDefaultNode(),
 			}
 			if isFile {
@@ -571,8 +571,8 @@ func (n *buildArtifactsDirNode) addFile(f *zip.File) {
 	}
 }
 
-func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
-	n.fs.debug.Printf("buildArtifactsDirNode.OpenDir() (prjID=%d bldID=%d)\n", n.prjID, n.bldID)
+func (n *jobArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+	n.fs.debug.Printf("jobArtifactsDirNode.OpenDir() (prjID=%d jobID=%d)\n", n.prjID, n.jobID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -581,8 +581,8 @@ func (n *buildArtifactsDirNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry,
 	return n.Node.OpenDir(context)
 }
 
-func (n *buildArtifactsDirNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
-	n.fs.debug.Printf("buildArtifactsDirNode.Lookup(%q) (prjID=%d bldID=%d)\n", name, n.prjID, n.bldID)
+func (n *jobArtifactsDirNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*nodefs.Inode, fuse.Status) {
+	n.fs.debug.Printf("jobArtifactsDirNode.Lookup(%q) (prjID=%d jobID=%d)\n", name, n.prjID, n.jobID)
 
 	if !n.fetch() {
 		return nil, fuse.EIO
@@ -597,12 +597,12 @@ func (n *buildArtifactsDirNode) Lookup(out *fuse.Attr, name string, context *fus
 
 /*****/
 
-type buildArtifactNode struct {
+type jobArtifactNode struct {
 	nodefs.Node
 	f *zip.File
 }
 
-func (n *buildArtifactNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+func (n *jobArtifactNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
 	if file != nil {
 		return file.GetAttr(out)
 	}
@@ -617,7 +617,7 @@ func (n *buildArtifactNode) GetAttr(out *fuse.Attr, file nodefs.File, context *f
 	return fuse.OK
 }
 
-func (n *buildArtifactNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
+func (n *jobArtifactNode) Open(flags uint32, context *fuse.Context) (nodefs.File, fuse.Status) {
 	if flags&fuse.O_ANYWRITE != 0 {
 		return nil, fuse.EPERM
 	}
