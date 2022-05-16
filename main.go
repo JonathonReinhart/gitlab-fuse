@@ -77,8 +77,10 @@ func main() {
 	mountpoint := flag.Arg(0)
 
 	// Create GitLab client
-	git := gitlab.NewClient(nil, *token)
-	git.SetBaseURL(*url)
+	git, err := gitlab.NewClient(*token, gitlab.WithBaseURL(*url))
+	if err != nil {
+		log.Fatalf("Failed to get GitLab client: %v", err)
+	}
 
 	// Create GitlabFs
 	fs := gitlabfs.NewGitlabFs(git, getGitlabFsOpts())
