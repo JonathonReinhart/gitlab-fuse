@@ -67,10 +67,10 @@ func (git *GitlabClient) GetAllVisibleProjects() (map[string][]*gitlab.Project, 
 	return result, err
 }
 
-func (git *GitlabClient) getAllProjectBuilds(pid interface{}) ([]gitlab.Build, error) {
-	result := make([]gitlab.Build, 0)
+func (git *GitlabClient) getAllProjectJobs(pid interface{}) ([]*gitlab.Job, error) {
+	result := make([]*gitlab.Job, 0)
 
-	opt := gitlab.ListBuildsOptions{
+	opt := gitlab.ListJobsOptions{
 		ListOptions: gitlab.ListOptions{
 			Page:    1,
 			PerPage: 100,
@@ -78,12 +78,12 @@ func (git *GitlabClient) getAllProjectBuilds(pid interface{}) ([]gitlab.Build, e
 	}
 
 	for {
-		builds, resp, err := git.Builds.ListProjectBuilds(pid, &opt)
+		jobs, resp, err := git.Jobs.ListProjectJobs(pid, &opt)
 		if err != nil {
 			return nil, err
 		}
 
-		result = append(result, builds...)
+		result = append(result, jobs...)
 
 		// Go to the next page
 		if resp.NextPage == 0 {
@@ -95,11 +95,11 @@ func (git *GitlabClient) getAllProjectBuilds(pid interface{}) ([]gitlab.Build, e
 	return result, nil
 }
 
-func (git *GitlabClient) GetAllProjectBuilds(pid interface{}) ([]gitlab.Build, error) {
+func (git *GitlabClient) GetAllProjectJobs(pid interface{}) ([]*gitlab.Job, error) {
 	t0 := time.Now()
-	result, err := git.getAllProjectBuilds(pid)
+	result, err := git.getAllProjectJobs(pid)
 	dt := time.Now().Sub(t0)
 
-	git.debug.Printf("GetAllProjectsBuilds() => %d records in %v\n", len(result), dt)
+	git.debug.Printf("GetAllProjectsJobs() => %d records in %v\n", len(result), dt)
 	return result, err
 }
